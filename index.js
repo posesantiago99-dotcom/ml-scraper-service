@@ -5,7 +5,7 @@ puppeteer.use(StealthPlugin());
 const app = express();
 
 app.get("/detalle", async (req, res) => {
-  const { url } = req.query;
+  const { url, cookies: cookiesParam } = req.query;
   if (!url) return res.status(400).json({ error: "url requerida" });
 
   try {
@@ -21,6 +21,33 @@ app.get("/detalle", async (req, res) => {
     await page.setUserAgent(
       "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
     );
+
+    if (cookiesParam) {
+      let cookies;
+      try {
+        cookies = JSON.parse(cookiesParam);
+        if (!Array.isArray(cookies)) cookies = [cookies];
+      } catch {
+        await browser.close();
+        return res.status(400).json({ error: "cookies debe ser un JSON válido (array de objetos cookie)" });
+      }
+
+      const targetUrl = new URL(url);
+      const normalized = cookies.map((c) => ({
+        name: c.name,
+        value: String(c.value),
+        domain: c.domain || targetUrl.hostname,
+        path: c.path || "/",
+        ...(c.expires != null && { expires: c.expires }),
+        ...(c.httpOnly != null && { httpOnly: c.httpOnly }),
+        ...(c.secure != null && { secure: c.secure }),
+        ...(c.sameSite != null && { sameSite: c.sameSite }),
+      }));
+
+      await page.setCookie(...normalized);
+      console.log(`Cookies inyectadas: ${normalized.length}`);
+    }
+
     await page.goto(url, { waitUntil: "networkidle2", timeout: 30000 });
 
     try {
