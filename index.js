@@ -1,5 +1,7 @@
 const express = require("express");
-const fetch = require("node-fetch");
+const puppeteer = require("puppeteer-extra");
+const StealthPlugin = require("puppeteer-extra-plugin-stealth");
+puppeteer.use(StealthPlugin());
 const app = express();
 
 app.get("/detalle", async (req, res) => {
@@ -9,20 +11,44 @@ app.get("/detalle", async (req, res) => {
   try {
     const skuMatch = url.match(/MLU-?(\d+)/);
     if (!skuMatch) return res.status(400).json({ error: "SKU no encontrado" });
-    const itemId = "MLU" + skuMatch[1];
 
-    const response = await fetch(`https://auto.mercadolibre.com.uy/${itemId}`, {
-      headers: {
-        "User-Agent":
-          "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/120.0.0.0 Safari/537.36",
-        "Accept-Language": "es-UY,es;q=0.9",
-        Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-      },
+    const browser = await puppeteer.launch({
+      headless: process.env.HEADLESS !== "false",
+      executablePath: process.env.PUPPETEER_EXECUTABLE_PATH || undefined,
+      args: ["--no-sandbox", "--disable-setuid-sandbox", "--disable-dev-shm-usage"],
     });
+    const page = await browser.newPage();
+    await page.setUserAgent(
+      "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
+    );
+    await page.goto(url, { waitUntil: "networkidle2", timeout: 30000 });
 
-    const html = await response.text();
-    console.log("HTML PRIMEROS 500 CHARS:", html.substring(0, 500));
-    console.log("STATUS ML:", response.status);
+    try {
+      await page.waitForSelector("#continue-button:not([disabled])", { timeout: 5000 });
+      await page.click("#continue-button");
+      await page.waitForNavigation({ waitUntil: "networkidle2", timeout: 30000 });
+    } catch (e) {
+      console.log("No hay challenge");
+    }
+
+    try {
+      await page.waitForFunction(
+        () => document.body.innerHTML.includes("Kilómetros") || document.body.innerHTML.includes("Marca"),
+        { timeout: 35000 },
+      );
+      console.log("Atributos encontrados en el DOM");
+    } catch (e) {
+      console.log("Timeout esperando atributos, extrayendo del HTML cargado");
+    }
+
+    const html = await page.content();
+    await browser.close();
+
+    console.log("HTML LENGTH:", html.length);
+    console.log("HTML COMPLETO:", html);
+    const idxMarca = html.indexOf('"Marca"');
+    console.log("POSICION Marca:", idxMarca);
+    if (idxMarca > -1) console.log("CONTEXTO:", html.substring(idxMarca - 50, idxMarca + 200));
 
     const extraer = (nombre) => {
       const regex = new RegExp(`\\{"id":"${nombre}","text":"([^"]+)"\\}`);
