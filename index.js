@@ -21,6 +21,8 @@ app.get("/detalle", async (req, res) => {
     });
 
     const html = await response.text();
+    console.log("HTML PRIMEROS 500 CHARS:", html.substring(0, 500));
+    console.log("STATUS ML:", response.status);
 
     const extraer = (nombre) => {
       const regex = new RegExp(`\\{"id":"${nombre}","text":"([^"]+)"\\}`);
